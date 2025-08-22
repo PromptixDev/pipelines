@@ -1,0 +1,10 @@
+{
+  "model": "europarl",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Députés français"
+    }
+  ],
+  "stream": false
+}
