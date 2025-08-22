@@ -10,9 +10,13 @@
       "Bash(winpty docker exec -it pipelines ls -la /app/)",
       "WebSearch",
       "WebFetch(domain:data.europarl.europa.eu)",
-      "Bash(docker:*)"
+      "Bash(docker:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\c\\Users\\adamc\\Documents"
+    ]
   }
 }
