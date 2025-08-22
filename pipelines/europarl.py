@@ -41,7 +41,7 @@ class Pipeline:
         
         # Common country codes mapping
         self.country_mapping = {
-            'france': 'FR', 'français': 'FR', 'french': 'FR',
+            'france': 'FR', 'français': 'FR', 'french': 'FR', 'francais': 'FR',
             'germany': 'DE', 'allemagne': 'DE', 'deutsch': 'DE', 'german': 'DE',
             'italy': 'IT', 'italie': 'IT', 'italian': 'IT', 'italiano': 'IT',
             'spain': 'ES', 'espagne': 'ES', 'spanish': 'ES', 'español': 'ES',
@@ -67,7 +67,19 @@ class Pipeline:
             'cyprus': 'CY', 'chypre': 'CY', 'cypriot': 'CY',
             'croatia': 'HR', 'croatie': 'HR', 'croatian': 'HR',
             'bulgaria': 'BG', 'bulgarie': 'BG', 'bulgarian': 'BG',
-            'romania': 'RO', 'roumanie': 'RO', 'romanian': 'RO'
+            'romania': 'RO', 'roumanie': 'RO', 'romanian': 'RO',
+            # Note: UK left EU in 2020, but for historical data
+            'uk': 'GB', 'britain': 'GB', 'british': 'GB', 'united kingdom': 'GB', 'royaume-uni': 'GB'
+        }
+        
+        # Available data types beyond MEPs
+        self.data_types = {
+            'meps': 'Members of European Parliament',
+            'meetings': 'Parliamentary meetings and events',
+            'adopted-texts': 'Legislative and non-legislative acts',
+            'documents': 'Parliamentary documents and reports',
+            'questions': 'Parliamentary questions and answers',
+            'plenary-sessions': 'Plenary session documents'
         }
 
     async def on_startup(self):
@@ -80,11 +92,25 @@ class Pipeline:
 
     def parse_query(self, query: str) -> Dict[str, Any]:
         """
-        Parse user query to extract filters for the OData API.
-        Supports country, birth year, and general search terms.
+        Parse user query to extract filters and data type.
+        Supports different data types, country filters, and dates.
         """
         query_lower = query.lower()
         filters = {}
+        
+        # Determine data type from query
+        filters['data_type'] = 'meps'  # default
+        
+        if any(word in query_lower for word in ['meeting', 'réunion', 'session', 'séance']):
+            filters['data_type'] = 'meetings'
+        elif any(word in query_lower for word in ['adopted', 'resolution', 'directive', 'regulation', 'adopté']):
+            filters['data_type'] = 'adopted-texts'
+        elif any(word in query_lower for word in ['document', 'report', 'rapport', 'motion']):
+            filters['data_type'] = 'documents'
+        elif any(word in query_lower for word in ['question', 'answer', 'réponse', 'interpellation']):
+            filters['data_type'] = 'questions'
+        elif any(word in query_lower for word in ['plenary', 'plenière', 'verbatim', 'agenda']):
+            filters['data_type'] = 'plenary-sessions'
         
         # Extract country information
         for country_name, country_code in self.country_mapping.items():
@@ -92,7 +118,7 @@ class Pipeline:
                 filters['country'] = country_code
                 break
         
-        # Extract birth year constraints
+        # Extract birth year constraints (for MEPs)
         year_pattern = r'(?:né|born|naissance).*?(?:après|after)\s+(\d{4})'
         match = re.search(year_pattern, query_lower)
         if match:
@@ -109,14 +135,21 @@ class Pipeline:
         if match:
             filters['birth_year'] = int(match.group(1))
         
+        # Extract date ranges (for documents, meetings, etc.)
+        date_pattern = r'(\d{4})-(\d{1,2})-(\d{1,2})'
+        match = re.search(date_pattern, query_lower)
+        if match:
+            filters['date'] = f"{match.group(1)}-{match.group(2):0>2}-{match.group(3):0>2}"
+        
         return filters
 
-    def build_api_url(self, endpoint: str, filters: Dict[str, Any]) -> str:
+    def build_api_url(self, filters: Dict[str, Any]) -> str:
         """
-        Build European Parliament API URL.
+        Build European Parliament API URL based on data type.
         Note: Filtering will be done client-side due to API limitations.
         """
-        base_url = f"{self.valves.API_BASE_URL}/{endpoint}"
+        data_type = filters.get('data_type', 'meps')
+        base_url = f"{self.valves.API_BASE_URL}/{data_type}"
         return base_url
 
     def apply_filters(self, meps: List[Dict], filters: Dict[str, Any]) -> List[Dict]:
@@ -182,6 +215,23 @@ class Pipeline:
         
         return False
 
+    def get_sample_data(self, data_type: str = 'meps') -> List[Dict]:
+        """
+        Provide sample data for demonstration when API is not available.
+        """
+        if data_type == 'meps':
+            return self.get_sample_meps_data()
+        elif data_type == 'meetings':
+            return self.get_sample_meetings_data()
+        elif data_type == 'adopted-texts':
+            return self.get_sample_adopted_texts_data()
+        elif data_type == 'documents':
+            return self.get_sample_documents_data()
+        elif data_type == 'questions':
+            return self.get_sample_questions_data()
+        else:
+            return self.get_sample_meps_data()  # fallback
+    
     def get_sample_meps_data(self) -> List[Dict]:
         """
         Provide sample MEPs data for demonstration when API is not available.
@@ -249,12 +299,85 @@ class Pipeline:
             }
         ]
 
-    def fetch_meps_data(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+    def get_sample_meetings_data(self) -> List[Dict]:
+        return [
+            {
+                'identifier': 'EP-2024-01-15-PLN',
+                'title': 'Plenary Session January 2024',
+                'startDate': '2024-01-15',
+                'endDate': '2024-01-18',
+                'type': 'Plenary session'
+            },
+            {
+                'identifier': 'EP-2024-01-22-AGRI',
+                'title': 'Committee on Agriculture Meeting',
+                'startDate': '2024-01-22',
+                'type': 'Committee meeting'
+            }
+        ]
+    
+    def get_sample_adopted_texts_data(self) -> List[Dict]:
+        return [
+            {
+                'identifier': 'EP-2024-P9-TA-0001',
+                'title': 'European Green Deal Implementation',
+                'adoptionDate': '2024-01-16',
+                'type': 'Resolution',
+                'subject': 'Environment'
+            },
+            {
+                'identifier': 'EP-2024-P9-TA-0002',
+                'title': 'Digital Services Act Amendment',
+                'adoptionDate': '2024-01-17',
+                'type': 'Legislative resolution',
+                'subject': 'Digital policy'
+            }
+        ]
+    
+    def get_sample_documents_data(self) -> List[Dict]:
+        return [
+            {
+                'identifier': 'EP-2024-A9-0001',
+                'title': 'Report on EU Budget 2024',
+                'documentType': 'Report',
+                'author': 'Committee on Budgets',
+                'date': '2024-01-10'
+            },
+            {
+                'identifier': 'EP-2024-B9-0001',
+                'title': 'Motion for Resolution on Climate Action',
+                'documentType': 'Motion',
+                'author': 'Political Group',
+                'date': '2024-01-12'
+            }
+        ]
+    
+    def get_sample_questions_data(self) -> List[Dict]:
+        return [
+            {
+                'identifier': 'EP-2024-E-000001',
+                'title': 'Question on Migration Policy',
+                'questionType': 'Written question',
+                'author': 'MEP Name',
+                'date': '2024-01-08',
+                'answered': True
+            },
+            {
+                'identifier': 'EP-2024-O-000001', 
+                'title': 'Oral Question on Energy Transition',
+                'questionType': 'Oral question',
+                'author': 'Committee Chair',
+                'date': '2024-01-15',
+                'answered': False
+            }
+        ]
+
+    def fetch_parliament_data(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Fetch MEPs (Members of European Parliament) data from the API.
+        Fetch European Parliament data from the API based on data type.
         """
         try:
-            url = self.build_api_url("meps", filters)
+            url = self.build_api_url(filters)
             logger.info(f"Fetching MEPs data from: {url}")
             
             headers = {
@@ -267,22 +390,22 @@ class Pipeline:
             # If API is not accessible, use sample data for demonstration
             if response.status_code != 200:
                 logger.warning(f"API returned status {response.status_code}, using sample data")
-                meps = self.get_sample_meps_data()
+                parliament_data = self.get_sample_data(filters.get('data_type', 'meps'))
             else:
                 data = response.json()
-                meps = data.get('data', [])
+                parliament_data = data.get('data', [])
             
             # Apply client-side filtering
-            filtered_meps = self.apply_filters(meps, filters)
+            filtered_data = self.apply_filters(parliament_data, filters)
             
             # Limit results
-            limited_meps = filtered_meps[:self.valves.MAX_RESULTS]
+            limited_data = filtered_data[:self.valves.MAX_RESULTS]
             
             return {
                 'success': True,
-                'count': len(limited_meps),
-                'total_available': len(filtered_meps),
-                'results': limited_meps,
+                'count': len(limited_data),
+                'total_available': len(filtered_data),
+                'results': limited_data,
                 'url': url,
                 'filters': filters
             }
@@ -308,27 +431,20 @@ class Pipeline:
         if not data['success']:
             return f"❌ **Error fetching European Parliament data**\n\n{data['error']}"
         
+        data_type = data['filters'].get('data_type', 'meps')
+        data_type_name = self.data_types.get(data_type, 'Data')
+        
         if data['count'] == 0:
-            return f"ℹ️ **No MEPs found for your query:** {query}"
+            return f"ℹ️ **No {data_type_name.lower()} found for your query:** {query}"
         
-        response = f"🏛️ **European Parliament - MEPs Data**\n\n"
+        icon = "🏛️" if data_type == 'meps' else "📄" if data_type in ['documents', 'adopted-texts'] else "🗓️" if data_type == 'meetings' else "❓" if data_type == 'questions' else "🏛️"
+        
+        response = f"{icon} **European Parliament - {data_type_name}**\n\n"
         response += f"**Query:** {query}\n"
-        response += f"**Results:** {data['count']} MEPs found\n\n"
+        response += f"**Results:** {data['count']} items found\n\n"
         
-        for i, mep in enumerate(data['results'], 1):
-            # Extract data from JSON-LD format
-            full_name = mep.get('label', mep.get('familyName', '') + ' ' + mep.get('givenName', '')).strip()
-            if not full_name or full_name == ' ':
-                full_name = mep.get('id', 'N/A').split('/')[-1] if '/' in str(mep.get('id', '')) else 'N/A'
-            
-            mep_id = mep.get('identifier', 'N/A')
-            family_name = mep.get('familyName', 'N/A')
-            given_name = mep.get('givenName', 'N/A')
-            
-            response += f"**{i}. {full_name}**\n"
-            response += f"   • ID: {mep_id}\n"
-            response += f"   • Family Name: {family_name}\n"
-            response += f"   • Given Name: {given_name}\n\n"
+        for i, item in enumerate(data['results'], 1):
+            response += self.format_item(i, item, data_type)
         
         if data['count'] >= self.valves.MAX_RESULTS:
             response += f"*Showing first {self.valves.MAX_RESULTS} results. "
@@ -339,6 +455,52 @@ class Pipeline:
         response += f"*API Endpoint: {data.get('url', 'N/A')}*"
         
         return response
+    
+    def format_item(self, index: int, item: Dict, data_type: str) -> str:
+        """
+        Format a single item based on its data type.
+        """
+        if data_type == 'meps':
+            full_name = item.get('label', item.get('familyName', '') + ' ' + item.get('givenName', '')).strip()
+            if not full_name or full_name == ' ':
+                full_name = item.get('id', 'N/A').split('/')[-1] if '/' in str(item.get('id', '')) else 'N/A'
+            
+            return f"**{index}. {full_name}**\n" \
+                   f"   • ID: {item.get('identifier', 'N/A')}\n" \
+                   f"   • Family Name: {item.get('familyName', 'N/A')}\n" \
+                   f"   • Given Name: {item.get('givenName', 'N/A')}\n\n"
+        
+        elif data_type == 'meetings':
+            return f"**{index}. {item.get('title', 'N/A')}**\n" \
+                   f"   • ID: {item.get('identifier', 'N/A')}\n" \
+                   f"   • Type: {item.get('type', 'N/A')}\n" \
+                   f"   • Start Date: {item.get('startDate', 'N/A')}\n" \
+                   f"   • End Date: {item.get('endDate', 'N/A')}\n\n"
+        
+        elif data_type == 'adopted-texts':
+            return f"**{index}. {item.get('title', 'N/A')}**\n" \
+                   f"   • ID: {item.get('identifier', 'N/A')}\n" \
+                   f"   • Type: {item.get('type', 'N/A')}\n" \
+                   f"   • Adoption Date: {item.get('adoptionDate', 'N/A')}\n" \
+                   f"   • Subject: {item.get('subject', 'N/A')}\n\n"
+        
+        elif data_type == 'documents':
+            return f"**{index}. {item.get('title', 'N/A')}**\n" \
+                   f"   • ID: {item.get('identifier', 'N/A')}\n" \
+                   f"   • Type: {item.get('documentType', 'N/A')}\n" \
+                   f"   • Author: {item.get('author', 'N/A')}\n" \
+                   f"   • Date: {item.get('date', 'N/A')}\n\n"
+        
+        elif data_type == 'questions':
+            return f"**{index}. {item.get('title', 'N/A')}**\n" \
+                   f"   • ID: {item.get('identifier', 'N/A')}\n" \
+                   f"   • Type: {item.get('questionType', 'N/A')}\n" \
+                   f"   • Author: {item.get('author', 'N/A')}\n" \
+                   f"   • Date: {item.get('date', 'N/A')}\n" \
+                   f"   • Answered: {'Yes' if item.get('answered') else 'No'}\n\n"
+        
+        else:
+            return f"**{index}. {item.get('title', item.get('identifier', 'N/A'))}**\n\n"
 
     def pipe(
         self, 
@@ -351,10 +513,16 @@ class Pipeline:
         Main pipeline function that processes user queries and returns EU Parliament data.
         
         Examples of supported queries:
+        MEPs:
         - "Députés français" → French MEPs
         - "German MEPs born after 1980" → German MEPs born after 1980
-        - "Italian politicians born in 1975" → Italian MEPs born in 1975
-        - "Spanish members" → Spanish MEPs
+        - "British MEPs" → British MEPs (historical data)
+        
+        Other data types:
+        - "European Parliament meetings" → Parliament meetings
+        - "Adopted resolutions" → Adopted texts and resolutions
+        - "Parliamentary documents" → Reports and documents
+        - "Parliamentary questions" → Questions and answers
         """
         logger.debug(f"Processing query: {user_message}")
         
@@ -372,7 +540,7 @@ class Pipeline:
             pass
         
         # Fetch data from the European Parliament API
-        data = self.fetch_meps_data(filters)
+        data = self.fetch_parliament_data(filters)
         
         # Format and return the response
         response = self.format_response(user_message, data)
